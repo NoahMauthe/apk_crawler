@@ -77,7 +77,7 @@ def _download(api, apps, downloaded, retry):
     return retry_list, busy_list, local_success
 
 
-def crawl(api):
+def crawl(api, limit):
     """Crawls the given API for Android applications.
 
     As the individual stores differ greatly, most of the implementation is located in the API itself.
@@ -88,10 +88,12 @@ def crawl(api):
     api : F-Droid.API or PlayStore.API
         The api to use.
         It will do most of the work for you.
+    limit : int
+        The maximum number of apps to retrieve from each category.
 
     """
     LOGGER.info(f'Crawling apps for {api.store}')
-    app_lists = _discover_apps(api)
+    app_lists = _discover_apps(api, limit)
     retry = []
     busy = []
     downloaded = set()
@@ -128,7 +130,7 @@ def crawl(api):
     _download(api, retry, downloaded, retry=False)
 
 
-def _discover_apps(api):
+def _discover_apps(api, limit=None):
     """Discovers applications for the specific API.
 
     Parameters
@@ -154,6 +156,11 @@ def _discover_apps(api):
         if not app_list:
             continue
         while ALL:
+            if limit:
+                if len(app_list) >= limit:
+                    app_list = app_list.limit(app_list[:limit])
+                    LOGGER.info(f'Subcategory "{app_list.name()}" reached the threshhold of {limit}, moving on.')
+                    break
             try:
                 app_list.more()
             except Maximum:
@@ -183,17 +190,19 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(description='Crawl an Android app store for apk files.')
     parser.add_argument('--store', dest='api', choices=['GooglePlay', 'F-Droid'], required=True,
-                        help='Specifies the store to crawl. At the moment only Google Play is supported')
+                        help='Specifies the store to crawl. At the moment only Google Play is supported.')
     parser.add_argument('--meta', dest='meta', required=False, action='store_const', default=False, const=True,
-                        help='If set, no apps will be downloaded, but the meta_data will be saved')
+                        help='If set, no apps will be downloaded, but the meta_data will be saved.')
     parser.add_argument('--basedir', dest='base_dir', type=str, default=os.getenv('HOME'),
-                        required=False, help='Specifies the base path for both logs and apk_downloads')
+                        required=False, help='Specifies the base path for both logs and apk_downloads.')
     parser.add_argument('--credentials', dest='credentials', type=str, required=False, default=None,
                         help='Specifies the path to a credential file in .toml format.')
+    parser.add_argument('--limit', dest='limit', type=int, required=False, default=None,
+                        help='Specifies the maximum number of apks per category to download.')
     return parser.parse_args()
 
 
-def crawl_meta_data(api):
+def crawl_meta_data(api, limit=None):
     """Crawls the api for metadata, but does not downloads any APK.
 
     Parameters
@@ -242,8 +251,6 @@ if __name__ == '__main__':
         'F-Droid': FDroid.API
     }
     if args.meta:
-        crawl_meta_data(api=api[args.api](args.credentials, base_dir=base_dir,logger=LOGGER))
+        crawl_meta_data(api[args.api](args.credentials, base_dir=base_dir,logger=LOGGER), args.limit)
     else:
-        print(base_dir)
-        crawl(api=api[args.api](args.credentials, base_dir=base_dir,
-            logger=LOGGER))
+        crawl(api[args.api](args.credentials, base_dir=base_dir,logger=LOGGER), args.limit)
